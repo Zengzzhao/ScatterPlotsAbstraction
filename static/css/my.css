@@ -1,0 +1,24 @@
+body {
+    -webkit-user-select: none;
+    background: white;
+}
+
+text {
+    pointer-events: none;
+}
+
+.data_point {
+    fill: red;
+    fill-opacity: 0;
+    stroke: black;
+}
+
+.border_point {
+    fill: green;
+    fill-opacity: 1;
+    stroke: none;
+}
+
+#ex1Slider .slider-selection {
+	background: #aaaaaa;
+}

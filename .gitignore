@@ -1,0 +1,15 @@
+.DB_Store
+
+# JetBrains 系列 IDE的项目配置文件夹，由 IDE 自动生成和维护。
+.idea
+
+# python自动生成的字节码缓存目录
+# python解释器把.py源码编译成字节码.pyc文件并缓存至__pycache__目录中
+# 缓存文件以xxx.cpython-3xx.pyc格式命名
+__pycache__
+
+.venv/
+
+
+static/data
+
