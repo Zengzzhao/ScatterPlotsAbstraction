@@ -1,4 +1,3 @@
-# encoding: utf-8
 from flask import Flask, render_template, request, redirect, url_for
 import json
 import pickle
@@ -19,17 +18,18 @@ width = None
 tree = None
 point_id2label = {}
 
+#==========网页路由==============
 # 曲线调整工具
 @app.route('/index')
 def index():
     return render_template('index.html')
-
-
 @app.route('/index2')
 def index2():
     return render_template('index2.html')
 
 
+# ============接口==============
+# 直接加载已缓存的密度文件，不做任何计算
 @app.route('/get_density', methods=['POST'])
 def get_density():
     data_name = request.form['data_name']
@@ -37,18 +37,17 @@ def get_density():
     density = np.load(file_path).tolist()
     return json.dumps(density)
 
-
-@app.route('/get_sampling', methods=['POST'])
-def get_sampling():
-    data = np.asarray(json.loads(request.form['coords']))
-    labels = np.asarray(json.loads(request.form['labels']))
-    sampling_rate = float(request.form['sampling_rate'])
-    sampler = Sampler()
-    sampler.set_data(data, labels)
-    sampler.set_sampling_method(MultiClassBlueNoiseSampling, sampling_rate=sampling_rate)
-    sampled_data, sampled_labels = sampler.get_samples()
-
-    return json.dumps({'sampled_data': sampled_data.tolist(), 'sampled_labels': sampled_labels.tolist()})
+# 对散点数据做多类蓝噪声采样，返回采样后的子集。
+# @app.route('/get_sampling', methods=['POST'])
+# def get_sampling():
+#     data = np.asarray(json.loads(request.form['coords']))
+#     labels = np.asarray(json.loads(request.form['labels']))
+#     sampling_rate = float(request.form['sampling_rate'])
+#     sampler = Sampler()
+#     sampler.set_data(data, labels)
+#     sampler.set_sampling_method(MultiClassBlueNoiseSampling, sampling_rate=sampling_rate)
+#     sampled_data, sampled_labels = sampler.get_samples()
+#     return json.dumps({'sampled_data': sampled_data.tolist(), 'sampled_labels': sampled_labels.tolist()})
 
 # 接收数据集名称，计算/从缓存中加载该散点图的kde、id-标签映射、kd树，返回kde
 @app.route('/get_kde', methods=['POST'])
