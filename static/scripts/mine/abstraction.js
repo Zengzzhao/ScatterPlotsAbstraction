@@ -87,8 +87,8 @@ function draw_circles(data) {
         .attr("cy", d => d[1])
         // .attr("r", d => Math.sqrt(d.avg_density / max_avg_density) * d.radius * 1.1)
         .attr('r', d => d.radius)
-        // 给类别着色打开注释
-        // .attr('fill', d => d.color);
+    // 给类别着色打开注释
+    // .attr('fill', d => d.color);
 }
 
 // 绘制密度等高线
@@ -134,10 +134,8 @@ $.post('/get_kde', {
     data_name: data_name,
     padding: 20,
     width: 800
-}, function(densities) {
+}, function (densities) {
     densities = JSON.parse(densities);
-    console.log(11111111,densities);
-    
     // 用kde密度构造 stippling
     const lbg_stippling = new Stippling(width, height, densities, [min_radius, max_radius]);
     // 运行 LBG 算法迭代
@@ -156,8 +154,6 @@ $.post('/get_kde', {
         }
         cell_densities.push(st.avg_density);
     }
-    console.log(lbg_stippling.stipples,111111111);
-    
 
     // 给类别着色打开注释
     // 按 label 给每个 stipple 赋颜色
@@ -176,7 +172,7 @@ $.post('/get_kde', {
     //         st.color = colors[labels[i]];
     //     }
     // });
-    
+
     // 绘制图形
     svg.attr('height', height);
     svg.append('rect')
