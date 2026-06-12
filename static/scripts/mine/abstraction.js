@@ -75,7 +75,7 @@ function perform_weightedLGB(lbg_stippling, max_iteration = 100) {
     }
 }
 
-// 绘制圆点（target_svg 为目标画布）
+// 绘制圆点（target_svg 为目标画布）；当数据点带有 color 属性时按其着色
 function draw_circles(data, target_svg) {
     const max_avg_density = d3.max(data, d => d.avg_density);
     target_svg.append('g')
@@ -87,8 +87,8 @@ function draw_circles(data, target_svg) {
         .attr("cy", d => d[1])
         // .attr("r", d => Math.sqrt(d.avg_density / max_avg_density) * d.radius * 1.1)
         .attr('r', d => d.radius)
-    // 给类别着色打开注释
-    // .attr('fill', d => d.color);
+        // 带 color 属性时按类别着色，否则保持默认填充
+        .attr('fill', d => d.color === undefined ? null : d.color);
 }
 
 // 绘制密度等高线（target_svg 为目标画布）
@@ -126,7 +126,7 @@ const max_iteration = 100;
 const data_name = 'cs_rankings';
 
 // 渲染主流程
-// 横向排列的容器，承载左右两幅对比图
+// 横向排列的容器，承载左右两列对比图
 const container = d3.select('body')
     .append('div')
     .style('display', 'flex')
@@ -134,9 +134,17 @@ const container = d3.select('body')
     .style('gap', '20px')
     .style('align-items', 'flex-start');
 
-// 创建一幅带标题、白色背景的画布
-function create_svg(title) {
-    const wrapper = container.append('div');
+// 创建一列，纵向堆叠两幅图
+function create_column() {
+    return container.append('div')
+        .style('display', 'flex')
+        .style('flex-direction', 'column')
+        .style('gap', '20px');
+}
+
+// 在指定列中创建一幅带标题、白色背景的画布
+function create_svg(column, title) {
+    const wrapper = column.append('div');
     wrapper.append('div')
         .text(title)
         .style('text-align', 'center')
@@ -152,23 +160,44 @@ function create_svg(title) {
     return s;
 }
 
-// 左：原始散点（未抽象）；右：weightedLBG 抽象结果
-const svg_origin = create_svg('原始散点（未抽象）');
-const svg_abstract = create_svg('WeightedLBG 抽象');
+// 左列：原始散点（上无色 / 下染色）；右列：weightedLBG 抽象（上无色 / 下染色）
+const left_column = create_column();
+const right_column = create_column();
+const svg_origin = create_svg(left_column, '原始散点（未抽象）');
+const svg_origin_colored = create_svg(left_column, '原始散点（染色）');
+const svg_abstract = create_svg(right_column, 'WeightedLBG 抽象');
+const svg_abstract_colored = create_svg(right_column, 'WeightedLBG 抽象（染色）');
 
-// 绘制未经过 weightedLBG 的原始散点
+// 类别 id 到颜色的映射
+const point_colors = area_id2color; // race2color; area_id2color; label2color;
+
+// 绘制未经过 weightedLBG 的原始散点（无色 + 染色）
 $.post('/get_points', {
     data_name: data_name,
     padding: 20,
     width: 800
-}, function (points) {
-    points = JSON.parse(points);
-    // 交换 x、y，与抽象点保持同一绘制坐标约定
-    points.forEach(p => {
-        [p[0], p[1]] = [p[1], p[0]];
+}, function (resp) {
+    resp = JSON.parse(resp);
+    const coords = resp.coords;
+    const labels = resp.labels;
+
+    // 无色原始散点
+    const points = coords.map(c => {
+        // 交换 x、y，与抽象点保持同一绘制坐标约定
+        const p = [c[1], c[0]];
         p.radius = min_radius;
+        return p;
     });
     draw_circles(points, svg_origin);
+
+    // 染色原始散点
+    const colored_points = coords.map((c, i) => {
+        const p = [c[1], c[0]];
+        p.radius = min_radius;
+        p.color = point_colors[labels[i]];
+        return p;
+    });
+    draw_circles(colored_points, svg_origin_colored);
 });
 
 // 获取密度标量场，并通过 weightedLBG 抽象绘制抽象后的散点图
@@ -197,25 +226,28 @@ $.post('/get_kde', {
         cell_densities.push(st.avg_density);
     }
 
-    // 给类别着色打开注释
-    // 按 label 给每个 stipple 赋颜色
-    // $.post('/get_labels', {
-    //     data_name: data_name,
-    //     min_radius: min_radius,
-    //     max_radius: max_radius,
-    //     cell_centroids: JSON.stringify(cell_centroids),
-    //     cell_masses: JSON.stringify(cell_masses),
-    //     cell_densities: JSON.stringify(cell_densities)
-    // }, function(labels) {
-    //     labels = JSON.parse(labels);
-    //     const colors = area_id2color; // race2color; area_id2color; label2color;
-    //     for (let i = 0; i < lbg_stippling.stipples.length; i++) {
-    //         const st = lbg_stippling.stipples[i];
-    //         st.color = colors[labels[i]];
-    //     }
-    // });
-
-    // 绘制图形
+    // 绘制无色抽象散点
     draw_circles(lbg_stippling.stipples, svg_abstract);
     // draw_kde_paths(lbg_stippling.stipples, svg_abstract);
+
+    // 按 label 给每个 stipple 赋颜色，绘制染色抽象散点
+    $.post('/get_labels', {
+        data_name: data_name,
+        min_radius: min_radius,
+        max_radius: max_radius,
+        cell_centroids: JSON.stringify(cell_centroids),
+        cell_masses: JSON.stringify(cell_masses),
+        cell_densities: JSON.stringify(cell_densities)
+    }, function (labels) {
+        labels = JSON.parse(labels);
+        // 复制一份带颜色的数据，避免影响无色图
+        const colored_stipples = lbg_stippling.stipples.map((st, i) => {
+            const p = [st[0], st[1]];
+            p.radius = st.radius;
+            p.avg_density = st.avg_density;
+            p.color = point_colors[labels[i]];
+            return p;
+        });
+        draw_circles(colored_stipples, svg_abstract_colored);
+    });
 });
