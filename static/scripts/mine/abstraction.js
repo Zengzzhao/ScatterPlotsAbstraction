@@ -75,10 +75,10 @@ function perform_weightedLGB(lbg_stippling, max_iteration = 100) {
     }
 }
 
-// 绘制圆点
-function draw_circles(data) {
+// 绘制圆点（target_svg 为目标画布）
+function draw_circles(data, target_svg) {
     const max_avg_density = d3.max(data, d => d.avg_density);
-    svg.append('g')
+    target_svg.append('g')
         .attr('id', 'circles_g')
         .selectAll("circle")
         .data(data).enter()
@@ -91,8 +91,8 @@ function draw_circles(data) {
     // .attr('fill', d => d.color);
 }
 
-// 绘制密度等高线
-function draw_kde_paths(data) {
+// 绘制密度等高线（target_svg 为目标画布）
+function draw_kde_paths(data, target_svg) {
     const contour_data = d3.contourDensity()
         .x(d => d[1])
         .y(d => d[0])
@@ -103,7 +103,7 @@ function draw_kde_paths(data) {
     const max_value = d3.max(contour_data, d => d.value);
     const color = d3.scaleSequential([0, max_value * 0.7], d3.interpolateYlGnBu);
 
-    svg.append('g')
+    target_svg.append('g')
         .attr('id', 'kde_g')
         .selectAll('path')
         .data(contour_data)
@@ -126,10 +126,52 @@ const max_iteration = 100;
 const data_name = 'cs_rankings';
 
 // 渲染主流程
-const svg = d3.select('body')
-    .append('svg')
-    .attr('width', width);
-// 获取密度图
+// 横向排列的容器，承载左右两幅对比图
+const container = d3.select('body')
+    .append('div')
+    .style('display', 'flex')
+    .style('flex-direction', 'row')
+    .style('gap', '20px')
+    .style('align-items', 'flex-start');
+
+// 创建一幅带标题、白色背景的画布
+function create_svg(title) {
+    const wrapper = container.append('div');
+    wrapper.append('div')
+        .text(title)
+        .style('text-align', 'center')
+        .style('font-weight', 'bold')
+        .style('margin-bottom', '6px');
+    const s = wrapper.append('svg')
+        .attr('width', width)
+        .attr('height', height);
+    s.append('rect')
+        .attr('width', width)
+        .attr('height', height)
+        .attr('fill', 'white');
+    return s;
+}
+
+// 左：原始散点（未抽象）；右：weightedLBG 抽象结果
+const svg_origin = create_svg('原始散点（未抽象）');
+const svg_abstract = create_svg('WeightedLBG 抽象');
+
+// 绘制未经过 weightedLBG 的原始散点
+$.post('/get_points', {
+    data_name: data_name,
+    padding: 20,
+    width: 800
+}, function (points) {
+    points = JSON.parse(points);
+    // 交换 x、y，与抽象点保持同一绘制坐标约定
+    points.forEach(p => {
+        [p[0], p[1]] = [p[1], p[0]];
+        p.radius = min_radius;
+    });
+    draw_circles(points, svg_origin);
+});
+
+// 获取密度标量场，并通过 weightedLBG 抽象绘制抽象后的散点图
 $.post('/get_kde', {
     data_name: data_name,
     padding: 20,
@@ -174,12 +216,6 @@ $.post('/get_kde', {
     // });
 
     // 绘制图形
-    svg.attr('height', height);
-    svg.append('rect')
-        .attr('width', width)
-        .attr('height', height)
-        // .attr('fill', 'black')
-        .attr('fill', 'white');
-    draw_circles(lbg_stippling.stipples);
-    // draw_kde_paths(lbg_stippling.stipples);
+    draw_circles(lbg_stippling.stipples, svg_abstract);
+    // draw_kde_paths(lbg_stippling.stipples, svg_abstract);
 });

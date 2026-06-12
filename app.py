@@ -49,6 +49,24 @@ def get_density():
 #     sampled_data, sampled_labels = sampler.get_samples()
 #     return json.dumps({'sampled_data': sampled_data.tolist(), 'sampled_labels': sampled_labels.tolist()})
 
+# 返回缩放到画布尺寸后的原始散点坐标，用于对比展示
+@app.route('/get_points', methods=['POST'])
+def get_points():
+    data_name = str(request.form['data_name'])
+    padding = int(request.form['padding'])
+    w = int(request.form['width'])
+    h = w
+
+    coords = []
+    with open(os.path.join(data_path, data_name, data_name + '.json')) as f:
+        for p in json.load(f):
+            coords.append([p['x'], p['y']])
+    coords = np.asarray(coords, dtype=float)
+    coords[:, 0] = d3_scale(coords[:, 0], out_range=(padding, w - padding))
+    coords[:, 1] = d3_scale(coords[:, 1], out_range=(padding, h - padding))
+    return json.dumps(coords.tolist())
+
+
 # 接收数据集名称，计算/从缓存中加载该散点图的kde、id-标签映射、kd树，返回kde
 # 返回的kde是一个长度为 width*height 的一维数组，每个值对应画布一个像素的归一化密度
 @app.route('/get_kde', methods=['POST'])
