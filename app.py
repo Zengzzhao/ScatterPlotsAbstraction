@@ -50,6 +50,7 @@ def get_density():
 #     return json.dumps({'sampled_data': sampled_data.tolist(), 'sampled_labels': sampled_labels.tolist()})
 
 # 接收数据集名称，计算/从缓存中加载该散点图的kde、id-标签映射、kd树，返回kde
+# 返回的kde是一个长度为 width*height 的一维数组，每个值对应画布一个像素的归一化密度
 @app.route('/get_kde', methods=['POST'])
 def get_kde():
     global width
@@ -62,9 +63,9 @@ def get_kde():
 
     # id-标签映射
     point_id2label_file_path = os.path.join(data_path, data_name, data_name + '_point_id2label.json')
-    # 密度
+    # kde密度
     density_file_path = os.path.join(data_path, data_name, data_name + '_density.npy')
-    # kde树
+    # kd树
     tree_file_path = os.path.join(data_path, data_name, data_name + '_tree.pickle')
 
     # 如果缓存文件存在，则直接加载
@@ -119,23 +120,26 @@ def get_labels():
     nearest_ids = tree.query(cell_centroids, k=1)[1].flatten().tolist()
     # 查询每个网格单元的最近原始数据点标签
     labels = list(map(lambda x: point_id2label[str(x)], nearest_ids))
+
+    # 需要保留结果时取消注释即可
     # 将每个网格单元的坐标、标签、质量、密度打包成一个列表
-    results = []
-    for ((x, y), label, mass, density) in zip(cell_centroids, labels, cell_masses, cell_densities):
-        if mass is None:
-            mass = 0
-        results.append({
-            'x': round(x, 3),
-            'y': round(y, 3),
-            'label': label,
-            'mass': round(mass, 5),
-            'density': round(density, 5),
-        })
+    # results = []
+    # for ((x, y), label, mass, density) in zip(cell_centroids, labels, cell_masses, cell_densities):
+    #     if mass is None:
+    #         mass = 0
+    #     results.append({
+    #         'x': round(x, 3),
+    #         'y': round(y, 3),
+    #         'label': label,
+    #         'mass': round(mass, 5),
+    #         'density': round(density, 5),
+    #     })
     # 写出结果
-    file_path = os.path.join(data_path, data_name, '_'.join([data_name, min_radius, max_radius]) + '.json')
-    if not os.path.exists(file_path):
-        with open(file_path, 'w') as fw:
-            json.dump(results, fw)
+    # file_path = os.path.join(data_path, data_name, '_'.join([data_name, min_radius, max_radius]) + '.json')
+    # if not os.path.exists(file_path):
+    #     with open(file_path, 'w') as fw:
+    #         json.dump(results, fw)
+    
     return json.dumps(labels)
 
 

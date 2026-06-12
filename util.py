@@ -18,7 +18,7 @@ def d3_scale(dat, out_range=(0, 1)):
 
     return interp(uninterp(dat))
 
-
+# 计算一组数据点[{x: 1, y: 2}, {x: 2, y: 3},...]，计算该数据点分布范围内均匀网格各点的密度
 def get_kde_density(points, w, h, bw=5):
     """
     给定一组数据点，计算该数据点分布范围内均匀网格各点的密度

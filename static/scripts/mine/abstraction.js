@@ -60,20 +60,22 @@ const race2color = {
     native1nh: "rgb(232,128,12)"
 };
 
-
+// 当某一轮既没有点被分裂、也没有点被删除（splitted 和 deleted 都为空）说明点集已稳定
+// 或者达到最大迭代次数
+//  → 退出循环。
 function perform_weightedLGB(lbg_stippling, max_iteration = 100) {
     let iteration = 1;
     let status = lbg_stippling.iterate();
     // const threshold = lbg_stippling.stipples.length * 0.005;
     while (status.splitted.length !== 0 || status.deleted.length !== 0) {
-        // console.log(status);
         status = lbg_stippling.iterate();
-        console.log('iteration times:', iteration, status.splitted.length, status.deleted.length);
+        // console.log('iteration times:', iteration, status.splitted.length, status.deleted.length);
         if (iteration >= max_iteration) break;
         iteration += 1;
     }
 }
 
+// 绘制圆点
 function draw_circles(data) {
     const max_avg_density = d3.max(data, d => d.avg_density);
     svg.append('g')
@@ -85,11 +87,12 @@ function draw_circles(data) {
         .attr("cy", d => d[1])
         // .attr("r", d => Math.sqrt(d.avg_density / max_avg_density) * d.radius * 1.1)
         .attr('r', d => d.radius)
-        .attr('fill', d => d.color);
+        // 给类别着色打开注释
+        // .attr('fill', d => d.color);
 }
 
+// 绘制密度等高线
 function draw_kde_paths(data) {
-    // 8-20/5-25
     const contour_data = d3.contourDensity()
         .x(d => d[1])
         .y(d => d[0])
@@ -108,31 +111,39 @@ function draw_kde_paths(data) {
         .attr('fill', 'none')
         .attr('stroke', 'white')
         .attr('stroke-width', 0.5)
-        // .attr('fill', d => color(d.value))
+        .attr('fill', d => color(d.value))
         .attr('d', d3.geoPath())
 }
 
-const [min_radius, max_radius] = [1, 3];
+// 圆点半径范围
+const [min_radius, max_radius] = [3, 3];
+// 画布大小
 const width = 800;
 const height = 800;
+// 最大迭代次数
 const max_iteration = 100;
+// 数据名称
 const data_name = 'cs_rankings';
+
+// 渲染主流程
 const svg = d3.select('body')
     .append('svg')
     .attr('width', width);
-
+// 获取密度图
 $.post('/get_kde', {
     data_name: data_name,
     padding: 20,
     width: 800
 }, function(densities) {
-    console.log(width, height, width * height);
     densities = JSON.parse(densities);
-    console.log(d3.extent(densities));
-
+    console.log(11111111,densities);
+    
+    // 用kde密度构造 stippling
     const lbg_stippling = new Stippling(width, height, densities, [min_radius, max_radius]);
+    // 运行 LBG 算法迭代
     perform_weightedLGB(lbg_stippling, max_iteration);
 
+    // 收集每个 cell 的质心cell_centroids、质量cell_masses、平均密度cell_densities
     const cell_centroids = [];
     const cell_masses = [];
     const cell_densities = [];
@@ -141,35 +152,38 @@ $.post('/get_kde', {
         cell_centroids.push([st[0], st[1]]);
         cell_masses.push(st.mass);
         if (st.avg_density === undefined) {
-            console.log('avg_density is undefined');
             st.avg_density = densities[Math.round(st[0]) * width + Math.round(st[1])];
         }
         cell_densities.push(st.avg_density);
     }
+    console.log(lbg_stippling.stipples,111111111);
+    
 
-    $.post('/get_labels', {
-        data_name: data_name,
-        min_radius: min_radius,
-        max_radius: max_radius,
-        cell_centroids: JSON.stringify(cell_centroids),
-        cell_masses: JSON.stringify(cell_masses),
-        cell_densities: JSON.stringify(cell_densities)
-    }, function(labels) {
-        console.log('cell num:', labels.length);
-
-        labels = JSON.parse(labels);
-        const colors = area_id2color; // race2color; area_id2color; label2color;
-        for (let i = 0; i < lbg_stippling.stipples.length; i++) {
-            const st = lbg_stippling.stipples[i];
-            st.color = colors[labels[i]];
-        }
-
-        svg.attr('height', height);
-        svg.append('rect')
-            .attr('width', width)
-            .attr('height', height)
-            .attr('fill', 'black');
-        draw_circles(lbg_stippling.stipples);
-        // draw_kde_paths(lbg_stippling.stipples);
-    });
+    // 给类别着色打开注释
+    // 按 label 给每个 stipple 赋颜色
+    // $.post('/get_labels', {
+    //     data_name: data_name,
+    //     min_radius: min_radius,
+    //     max_radius: max_radius,
+    //     cell_centroids: JSON.stringify(cell_centroids),
+    //     cell_masses: JSON.stringify(cell_masses),
+    //     cell_densities: JSON.stringify(cell_densities)
+    // }, function(labels) {
+    //     labels = JSON.parse(labels);
+    //     const colors = area_id2color; // race2color; area_id2color; label2color;
+    //     for (let i = 0; i < lbg_stippling.stipples.length; i++) {
+    //         const st = lbg_stippling.stipples[i];
+    //         st.color = colors[labels[i]];
+    //     }
+    // });
+    
+    // 绘制图形
+    svg.attr('height', height);
+    svg.append('rect')
+        .attr('width', width)
+        .attr('height', height)
+        // .attr('fill', 'black')
+        .attr('fill', 'white');
+    draw_circles(lbg_stippling.stipples);
+    // draw_kde_paths(lbg_stippling.stipples);
 });
