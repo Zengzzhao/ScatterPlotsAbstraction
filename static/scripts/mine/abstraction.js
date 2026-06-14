@@ -59,6 +59,22 @@ const race2color = {
     hisp: "rgb(255,240,124)",
     native1nh: "rgb(232,128,12)"
 };
+// 圆点半径范围
+const [min_radius, max_radius] = [3, 3];
+// 画布大小
+const width = 800;
+const height = 800;
+// 最大迭代次数
+const max_iteration = 100;
+// 数据名称
+const data_name = 'cs_rankings';
+// 横向排列的容器，承载左右两列对比图
+const container = d3.select('body')
+    .append('div')
+    .style('display', 'flex')
+    .style('flex-direction', 'row')
+    .style('gap', '20px')
+    .style('align-items', 'flex-start');
 
 // 当某一轮既没有点被分裂、也没有点被删除（splitted 和 deleted 都为空）说明点集已稳定
 // 或者达到最大迭代次数
@@ -77,7 +93,6 @@ function perform_weightedLGB(lbg_stippling, max_iteration = 100) {
 
 // 绘制圆点（target_svg 为目标画布）；当数据点带有 color 属性时按其着色
 function draw_circles(data, target_svg) {
-    const max_avg_density = d3.max(data, d => d.avg_density);
     target_svg.append('g')
         .attr('id', 'circles_g')
         .selectAll("circle")
@@ -85,54 +100,42 @@ function draw_circles(data, target_svg) {
         .append("circle")
         .attr("cx", d => d[0])
         .attr("cy", d => d[1])
-        // .attr("r", d => Math.sqrt(d.avg_density / max_avg_density) * d.radius * 1.1)
         .attr('r', d => d.radius)
         // 带 color 属性时按类别着色，否则保持默认填充
         .attr('fill', d => d.color === undefined ? null : d.color);
 }
 
-// 绘制密度等高线（target_svg 为目标画布）
-function draw_kde_paths(data, target_svg) {
-    const contour_data = d3.contourDensity()
-        .x(d => d[1])
-        .y(d => d[0])
-        .size([width, height])
-        .bandwidth(5)
-        .thresholds(25)
-        (data);
-    const max_value = d3.max(contour_data, d => d.value);
-    const color = d3.scaleSequential([0, max_value * 0.7], d3.interpolateYlGnBu);
+// 把后端密度场从“列优先(x 在高位)：density[x * width + y]”转为
+// d3.contours / Stippling 通用的“行优先(y 在高位)：grid[y * width + x]”。
+// 转置后整个前端统一工作在 [x_data, y_data] 坐标系，无需再交换 x、y。
+function to_row_major(densities, width, height) {
+    const grid = new Array(width * height);
+    for (let x = 0; x < width; x++) {
+        for (let y = 0; y < height; y++) {
+            grid[y * width + x] = densities[x * width + y];
+        }
+    }
+    return grid;
+}
 
+// 基于后端返回的 KDE 密度标量场绘制等高线（target_svg 为目标画布）
+function draw_kde_paths_from_density(densities, target_svg) {
+    const max_value = d3.max(densities);
+    const thresholds = d3.range(1, 26).map(i => (max_value * i) / 26);
+    const contour_data = d3.contours()
+        .size([width, height])
+        .thresholds(thresholds)
+        (densities);
+    const color = d3.scaleSequential([0, max_value * 0.7], d3.interpolateYlGnBu);
     target_svg.append('g')
         .attr('id', 'kde_g')
         .selectAll('path')
         .data(contour_data)
         .enter().append('path')
-        .attr('fill', 'none')
-        .attr('stroke', 'white')
-        .attr('stroke-width', 0.5)
         .attr('fill', d => color(d.value))
-        .attr('d', d3.geoPath())
+        .attr('stroke-width', 0.5)
+        .attr('d', d3.geoPath());
 }
-
-// 圆点半径范围
-const [min_radius, max_radius] = [3, 3];
-// 画布大小
-const width = 800;
-const height = 800;
-// 最大迭代次数
-const max_iteration = 100;
-// 数据名称
-const data_name = 'cs_rankings';
-
-// 渲染主流程
-// 横向排列的容器，承载左右两列对比图
-const container = d3.select('body')
-    .append('div')
-    .style('display', 'flex')
-    .style('flex-direction', 'row')
-    .style('gap', '20px')
-    .style('align-items', 'flex-start');
 
 // 创建一列，纵向堆叠两幅图
 function create_column() {
@@ -160,11 +163,13 @@ function create_svg(column, title) {
     return s;
 }
 
-// 左列：原始散点（上无色 / 下染色）；右列：weightedLBG 抽象（上无色 / 下染色）
+// 左列：原始散点（上无色 / 下染色）；中列：KDE 密度等高线；右列：weightedLBG 抽象（上无色 / 下染色）
 const left_column = create_column();
+const middle_column = create_column();
 const right_column = create_column();
 const svg_origin = create_svg(left_column, '原始散点（未抽象）');
 const svg_origin_colored = create_svg(left_column, '原始散点（染色）');
+const svg_origin_kde = create_svg(middle_column, '原始散点 KDE');
 const svg_abstract = create_svg(right_column, 'WeightedLBG 抽象');
 const svg_abstract_colored = create_svg(right_column, 'WeightedLBG 抽象（染色）');
 
@@ -183,8 +188,7 @@ $.post('/get_points', {
 
     // 无色原始散点
     const points = coords.map(c => {
-        // 交换 x、y，与抽象点保持同一绘制坐标约定
-        const p = [c[1], c[0]];
+        const p = [c[0], c[1]];
         p.radius = min_radius;
         return p;
     });
@@ -192,7 +196,7 @@ $.post('/get_points', {
 
     // 染色原始散点
     const colored_points = coords.map((c, i) => {
-        const p = [c[1], c[0]];
+        const p = [c[0], c[1]];
         p.radius = min_radius;
         p.color = point_colors[labels[i]];
         return p;
@@ -200,15 +204,20 @@ $.post('/get_points', {
     draw_circles(colored_points, svg_origin_colored);
 });
 
-// 获取密度标量场，并通过 weightedLBG 抽象绘制抽象后的散点图
+// 获取密度标量场，绘制抽象后的散点图
 $.post('/get_kde', {
     data_name: data_name,
     padding: 20,
     width: 800
 }, function (densities) {
     densities = JSON.parse(densities);
+    // 后端为列优先(x 在高位)，转成行优先(y 在高位)，统一到 [x_data, y_data] 坐标系
+    densities = to_row_major(densities, width, height);
+    // 绘制原始散点的 KDE 密度等高线
+    draw_kde_paths_from_density(densities, svg_origin_kde);
     // 用kde密度构造 stippling
     const lbg_stippling = new Stippling(width, height, densities, [min_radius, max_radius]);
+
     // 运行 LBG 算法迭代
     perform_weightedLGB(lbg_stippling, max_iteration);
 
@@ -217,19 +226,17 @@ $.post('/get_kde', {
     const cell_masses = [];
     const cell_densities = [];
     for (const st of lbg_stippling.stipples) {
-        [st[0], st[1]] = [st[1], st[0]];
         cell_centroids.push([st[0], st[1]]);
         cell_masses.push(st.mass);
         if (st.avg_density === undefined) {
-            st.avg_density = densities[Math.round(st[0]) * width + Math.round(st[1])];
+            st.avg_density = densities[Math.round(st[1]) * width + Math.round(st[0])];
         }
         cell_densities.push(st.avg_density);
     }
 
     // 绘制无色抽象散点
     draw_circles(lbg_stippling.stipples, svg_abstract);
-    // draw_kde_paths(lbg_stippling.stipples, svg_abstract);
-
+    
     // 按 label 给每个 stipple 赋颜色，绘制染色抽象散点
     $.post('/get_labels', {
         data_name: data_name,
