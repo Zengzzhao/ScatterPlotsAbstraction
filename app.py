@@ -163,5 +163,53 @@ def get_labels():
     return json.dumps(labels)
 
 
+# ============ 离群点保护接口（OP, Outlier Protection）============
+@app.route('/get_protected_points', methods=['POST'])
+def get_protected_points():
+    data_name = str(request.form['data_name'])
+    padding = int(request.form['padding'])
+    w = int(request.form['width'])
+    h = w
+    # 可调参数（带默认值）：LOF 近邻数、密度门控分位数、保护点数
+    k = int(request.form.get('k', 20))
+    density_quantile = float(request.form.get('density_quantile', 0.30))
+    budget = int(request.form.get('budget', 200))
+    # 是否启用密度门控（前端传 'true'/'false' 字符串）
+    use_density_gate = str(request.form.get('use_density_gate', 'true')).lower() == 'true'
+
+    # 读取原始点坐标与标签，并缩放到画布坐标系
+    coords = []
+    labels = []
+    with open(os.path.join(data_path, data_name, data_name + '.json')) as f:
+        for p in json.load(f):
+            coords.append([p['x'], p['y']])
+            labels.append(p['label'])
+    coords = np.asarray(coords, dtype=float)
+    coords[:, 0] = d3_scale(coords[:, 0], out_range=(padding, w - padding))
+    coords[:, 1] = d3_scale(coords[:, 1], out_range=(padding, h - padding))
+
+    # 加载缓存的归一化密度场
+    density_file_path = os.path.join(data_path, data_name, data_name + '_density.npy')
+    densities = np.load(density_file_path)
+
+    # 识别需要保护的离群点
+    result = detect_outliers(
+        coords, densities, w, h,
+        k=k, density_quantile=density_quantile, budget=budget,
+        use_density_gate=use_density_gate
+    )
+
+    # 组装返回：被保护离群点的画布坐标、标签、保护分数
+    idx = result['indices']
+    protected = {
+        'coords': coords[idx].tolist() if len(idx) else [],
+        'labels': [labels[i] for i in idx],
+        'scores': result['scores'],
+        'lof': result['lof'],
+        'local_density': result['local_density'],
+    }
+    return json.dumps(protected)
+
+
 if __name__ == '__main__':
     app.run(debug=True, port=5190)

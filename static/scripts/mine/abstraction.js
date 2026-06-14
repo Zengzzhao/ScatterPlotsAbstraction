@@ -68,6 +68,17 @@ const height = 800;
 const max_iteration = 100;
 // 数据名称
 const data_name = 'cs_rankings';
+
+// ============ 离群点保护（OP, Outlier Protection）配置 ============
+const protect_config = {
+    enabled: true,        // 是否启用离群点保护
+    use_density_gate: true, // 是否启用密度门控：true 仅在低密度区保护；false 对全部点按 LOF 取 Top-N
+    k: 20,                // LOF 的KNN近邻数
+    density_quantile: 0.30, // 密度门控分位数：只在低密度区保留离群点（仅 use_density_gate=true 时生效）
+    budget: 10,          // 保留点上限：按保护分数 Top-N 取
+    color: '#e41a1c',     // 保护点描边颜色（红色环），与普通刻点区分
+    radius: 3,          // 保护点半径
+};
 // 横向排列的容器，承载左右两列对比图
 const container = d3.select('body')
     .append('div')
@@ -103,6 +114,51 @@ function draw_circles(data, target_svg) {
         .attr('r', d => d.radius)
         // 带 color 属性时按类别着色，否则保持默认填充
         .attr('fill', d => d.color === undefined ? null : d.color);
+}
+
+// 绘制离群点保护 overlay 叠加层（在抽象刻点之上）。
+function draw_protected_overlay(data, target_svg, { colored = false } = {}) {
+    target_svg.append('g')
+        .attr('id', 'protected_g')
+        .selectAll('circle')
+        .data(data).enter()
+        .append('circle')
+        .attr('cx', d => d[0])
+        .attr('cy', d => d[1])
+        .attr('r', protect_config.radius)
+        // 染色模式下内部填类别色，无色模式下用淡填充以便看清环
+        .attr('fill', d => colored && d.color !== undefined ? d.color : 'red')
+        .attr('stroke', protect_config.color) // 红色环描边，标记"被保护的离群点"
+        .attr('stroke-width', 1.5)
+        .attr('opacity', 1);
+}
+
+// 拉取并叠加被保护的离群点。
+function overlay_protected_points() {
+    if (!protect_config.enabled) return;
+    $.post('/get_protected_points', {
+        data_name: data_name,
+        padding: 20,
+        width: width,
+        k: protect_config.k,
+        density_quantile: protect_config.density_quantile,
+        budget: protect_config.budget,
+        use_density_gate: protect_config.use_density_gate
+    }, function (resp) {
+        resp = JSON.parse(resp);
+        const coords = resp.coords || [];
+        const labels = resp.labels || [];
+
+        // 绘制
+        let pts = coords.map(c => [c[0], c[1]]);
+        draw_protected_overlay(pts, svg_abstract, { colored: false });
+        // pts = coords.map((c, i) => {
+        //     const p = [c[0], c[1]];
+        //     p.color = point_colors[labels[i]];
+        //     return p;
+        // });
+        // draw_protected_overlay(pts, svg_abstract_colored, { colored: true });
+    });
 }
 
 // 把后端密度场从“列优先(x 在高位)：density[x * width + y]”转为
@@ -169,7 +225,7 @@ const middle_column = create_column();
 const right_column = create_column();
 const svg_origin = create_svg(left_column, '原始散点（未抽象）');
 const svg_origin_colored = create_svg(left_column, '原始散点（染色）');
-const svg_origin_kde = create_svg(middle_column, '原始散点 KDE');
+// const svg_origin_kde = create_svg(middle_column, '原始散点 KDE');
 const svg_abstract = create_svg(right_column, 'WeightedLBG 抽象');
 const svg_abstract_colored = create_svg(right_column, 'WeightedLBG 抽象（染色）');
 
@@ -195,13 +251,13 @@ $.post('/get_points', {
     draw_circles(points, svg_origin);
 
     // 染色原始散点
-    const colored_points = coords.map((c, i) => {
-        const p = [c[0], c[1]];
-        p.radius = min_radius;
-        p.color = point_colors[labels[i]];
-        return p;
-    });
-    draw_circles(colored_points, svg_origin_colored);
+    // const colored_points = coords.map((c, i) => {
+    //     const p = [c[0], c[1]];
+    //     p.radius = min_radius;
+    //     p.color = point_colors[labels[i]];
+    //     return p;
+    // });
+    // draw_circles(colored_points, svg_origin_colored);
 });
 
 // 获取密度标量场，绘制抽象后的散点图
@@ -214,7 +270,7 @@ $.post('/get_kde', {
     // 后端为列优先(x 在高位)，转成行优先(y 在高位)，统一到 [x_data, y_data] 坐标系
     densities = to_row_major(densities, width, height);
     // 绘制原始散点的 KDE 密度等高线
-    draw_kde_paths_from_density(densities, svg_origin_kde);
+    // draw_kde_paths_from_density(densities, svg_origin_kde);
     // 用kde密度构造 stippling
     const lbg_stippling = new Stippling(width, height, densities, [min_radius, max_radius]);
 
@@ -234,27 +290,30 @@ $.post('/get_kde', {
         cell_densities.push(st.avg_density);
     }
 
-    // 绘制无色抽象散点
+    // 绘制无色抽象刻点
     draw_circles(lbg_stippling.stipples, svg_abstract);
-    
+
+    // 叠加被保护的低密度离群点
+    overlay_protected_points();
+
     // 按 label 给每个 stipple 赋颜色，绘制染色抽象散点
-    $.post('/get_labels', {
-        data_name: data_name,
-        min_radius: min_radius,
-        max_radius: max_radius,
-        cell_centroids: JSON.stringify(cell_centroids),
-        cell_masses: JSON.stringify(cell_masses),
-        cell_densities: JSON.stringify(cell_densities)
-    }, function (labels) {
-        labels = JSON.parse(labels);
-        // 复制一份带颜色的数据，避免影响无色图
-        const colored_stipples = lbg_stippling.stipples.map((st, i) => {
-            const p = [st[0], st[1]];
-            p.radius = st.radius;
-            p.avg_density = st.avg_density;
-            p.color = point_colors[labels[i]];
-            return p;
-        });
-        draw_circles(colored_stipples, svg_abstract_colored);
-    });
+    // $.post('/get_labels', {
+    //     data_name: data_name,
+    //     min_radius: min_radius,
+    //     max_radius: max_radius,
+    //     cell_centroids: JSON.stringify(cell_centroids),
+    //     cell_masses: JSON.stringify(cell_masses),
+    //     cell_densities: JSON.stringify(cell_densities)
+    // }, function (labels) {
+    //     labels = JSON.parse(labels);
+    //     // 复制一份带颜色的数据，避免影响无色图
+    //     const colored_stipples = lbg_stippling.stipples.map((st, i) => {
+    //         const p = [st[0], st[1]];
+    //         p.radius = st.radius;
+    //         p.avg_density = st.avg_density;
+    //         p.color = point_colors[labels[i]];
+    //         return p;
+    //     });
+    //     draw_circles(colored_stipples, svg_abstract_colored);
+    // });
 });
