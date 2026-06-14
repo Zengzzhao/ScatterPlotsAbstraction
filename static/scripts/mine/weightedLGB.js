@@ -47,7 +47,7 @@ class Stippling {
         const delaunay = d3.Delaunay.from(this.stipples);
         const voronoi = delaunay.voronoi([0, 0, this.width, this.height]);
 
-        // 初始化每个刻点的属性
+        // 初始化每个刻点所在Voronoi单元的属性
         for (let i = 0; i < this.stipples.length; i++) {
             const st = this.stipples[i];
             st.mass = 0;
@@ -57,16 +57,16 @@ class Stippling {
             st.moment20 = 0;
             st.moment02 = 0;
         }
-        // 遍历整个密度矩阵的每个像素点，看该像素点距离那个刻点最近,用其密度值更新该刻点的属性：质量和各阶矩
+        // 遍历整个密度矩阵的每个像素点，用该像素点的密度值更新所在Voronoi单元的属性：质量和各阶矩
         let found = 0;
         for (let y = 0; y < this.height; y++) {
             const line = y * this.width;
             for (let x = 0; x < this.width; x++) {
-                found = delaunay.find(x, y, found); // 找到离像素 (x,y) 最近的刻点的索引（即该像素属于哪个 Voronoi 单元）
+                found = delaunay.find(x, y, found); // 找到像素属于哪个 Voronoi 单元
                 const st = this.stipples[found];
                 // 获取像素 (x,y) 的密度值，在一维数组表示二维数组中，下标 = y * width + x
                 const val = this.values[x + line];
-                st.mass += val; // 密度作为当前刻点的质量
+                st.mass += val; // 密度作为当前 Voronoi 单元的质量
 
                 const xval = x * val;
                 const yval = y * val;
@@ -85,12 +85,12 @@ class Stippling {
             .range(this.radius_extent)
             .clamp(true);
 
-        // 遍历每个刻点，根据它的"质量"决定删除/分裂/保留，把存活的点重组成新的刻点
+        // 遍历每个 Voronoi 单元，根据它的"质量"决定删除/分裂/保留，把存活的单元重组成新的 Voronoi 单元
         const deleted = [];
         const splitted = [];
         const relaxed = [];
         for (let i = 0; i < this.stipples.length; i++) {
-            // 第i个刻点的Voronoi单元顶点
+            // 第i个刻点的Voronoi单元构成其多边形形状的顶点数组
             const polygon = voronoi.cellPolygon(i);
             if (!polygon) continue;
             const st = this.stipples[i];
@@ -128,11 +128,11 @@ class Stippling {
                 let deltaX = dist * Math.cos(orientation);
                 let deltaY = dist * Math.sin(orientation);
 
-                // 点 A：重心 + 偏移
+                // 点 A：质心 + 偏移
                 st[0] = cx + deltaX;
                 st[1] = cy + deltaY;
                 st.radius = radius;
-                // 点 B：重心 − 偏移
+                // 点 B：质心 − 偏移
                 centroid[0] -= deltaX;
                 centroid[1] -= deltaY;
                 centroid.radius = radius;
@@ -140,7 +140,7 @@ class Stippling {
                 splitted.push(st);
                 splitted.push(centroid);
             }
-            // 质量适中 → 保留，把点移到加权重心
+            // 质量适中 → 保留，把点移到质心
             else {
                 st[0] = st.moment10 / mass;
                 st[1] = st.moment01 / mass;
@@ -153,7 +153,7 @@ class Stippling {
         this.threshold = this.threshold + this.delta_threshold;
         console.log('threshold:', this.threshold);
         this.stipples.length = relaxed.length + splitted.length;
-        // 把存活的点重组成新的 stipples
+        // 把存活的点重组成新刻点
         for (let i = 0; i < relaxed.length; i++) this.stipples[i] = relaxed[i];
         for (let i = 0; i < splitted.length; i++) this.stipples[i + relaxed.length] = splitted[i];
 
